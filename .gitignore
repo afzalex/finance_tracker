@@ -1,2 +1,39 @@
+# Generic Python / Node artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Environment
+.env
+*.env
+
+# Secrets — NEVER commit credentials or tokens
+secrets/
+
+# SQLite database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Alembic offline scripts
+migrations/versions/__pycache__/
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# macOS junk
 .DS_Store
+
+# IDEs
+.vscode/settings.json
+.idea/
+
 ~$*.docx

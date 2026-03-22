@@ -1,3 +1,9 @@
 [submodule "finance-tracker-legacy"]
 	path = finance-tracker-legacy
-	url = ssh://git@gitea.afzalex.com:2222/afzal/finance_tracker_legacy.git
+	url = ssh://git@gitea.afzalex.com:2222/fzsystems/finance_tracker_legacy.git
+[submodule "backend"]
+	path = backend
+	url = ssh://git@gitea.afzalex.com:2222/fzsystems/finance_tracker_backend.git
+[submodule "frontend"]
+	path = frontend
+	url = ssh://git@gitea.afzalex.com:2222/fzsystems/finance_tracker_frontend.git

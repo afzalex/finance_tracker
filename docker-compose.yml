@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: finance-tracker-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./secrets:/app/secrets
+    environment:
+      - DATABASE_URL=sqlite:///./data/finance.db
+      - GMAIL_CREDENTIALS_FILE=/app/secrets/credentials.json
+      - GMAIL_TOKEN_FILE=/app/secrets/token.json
+      - ENV=production
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: finance-tracker-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
