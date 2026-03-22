@@ -1,0 +1,3 @@
+[submodule "finance-tracker-legacy"]
+	path = finance-tracker-legacy
+	url = ssh://git@gitea.afzalex.com:2222/afzal/finance_tracker_legacy.git
