@@ -1,0 +1,167 @@
+# ── Finance Tracker — Full-Stack Deployment Workflow ──────────────────────────
+#
+# Runs on every push to the trigger branch (scratch for testing, main for prod).
+#
+# Pipeline:
+#   build-and-test ─► deploy
+#
+#   build-and-test  — builds backend-test and frontend-test stages in parallel
+#                     (BuildKit parallelises dep stages automatically), runs both
+#                     test containers, then builds the final image.
+#   deploy          — runs the container on the runner's docker host (non-prod)
+#
+# ── Variables (Settings > Actions > Variables) ────────────────────────────────
+#
+# Optional:
+#   DEPLOY_NETWORK      Docker network to attach the container to (--network).
+#                       Omit to use Docker's default network.
+#   DEPLOY_SECRETS_DIR  Host path mounted as /app/backend/secrets inside the container.
+#                       Holds credentials.json and token.json for Gmail OAuth.
+#                       Defaults to /opt/finance-tracker/secrets if unset.
+#   DEPLOY_DATA_DIR     Host path mounted as /app/backend/data inside the container.
+#                       Holds the SQLite database file.
+#                       Defaults to /opt/finance-tracker/data if unset.
+#   DEPLOY_UID          UID the container process runs as (--user UID:GID).
+#                       Files written to mounted volumes will be owned by this UID.
+#                       Defaults to 1000 if unset.
+#   DEPLOY_GID          GID the container process runs as.
+#                       Defaults to 1000 if unset.
+#
+# ── Secrets (Settings > Actions > Secrets) ────────────────────────────────────
+#
+# Production only (uncomment the prod blocks below before use):
+#   REGISTRY_USER   Gitea username for container registry login
+#   REGISTRY_TOKEN  Gitea access token with package:write scope
+#   DEPLOY_HOST     SSH host of the deployment server
+#   DEPLOY_USER     SSH user on the deployment server
+#   DEPLOY_KEY      SSH private key for the deployment server
+#
+# ── Volume mounts ──────────────────────────────────────────────────────────────
+#
+#   Host path              Container path           Purpose
+#   $DEPLOY_DATA_DIR       /app/backend/data        SQLite DB (persists across restarts)
+#   $DEPLOY_SECRETS_DIR    /app/backend/secrets     Gmail OAuth credentials + token
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: gitea.afzalex.com
+  IMAGE: gitea.afzalex.com/fzsystems/finance_tracker
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout submodules
+        run: |
+          git config --global url."https://oauth2:${{ secrets.GITHUB_TOKEN }}@gitea.afzalex.com/".insteadOf "ssh://git@gitea.afzalex.com:2222/"
+          git config --global http.sslVerify false
+          git submodule update --init frontend backend
+
+      - name: Build test images in parallel
+        # BuildKit parallelises backend-deps and frontend-deps automatically.
+        # We also kick off both target builds in parallel at the shell level.
+        run: |
+          DOCKER_BUILDKIT=1 docker build --target backend-test  -t ft-backend-test  . &
+          DOCKER_BUILDKIT=1 docker build --target frontend-test -t ft-frontend-test . &
+          wait
+
+      - name: Run backend tests
+        run: docker run --rm ft-backend-test
+
+      - name: Run frontend tests
+        run: docker run --rm ft-frontend-test
+
+      - name: Build final image
+        # Production: push to registry with caching.
+        #
+        # uses: docker/login-action@v3
+        # with:
+        #   registry: ${{ env.REGISTRY }}
+        #   username: ${{ secrets.REGISTRY_USER }}
+        #   password: ${{ secrets.REGISTRY_TOKEN }}
+        #
+        # uses: docker/build-push-action@v5
+        # with:
+        #   context: .
+        #   target: final
+        #   push: true
+        #   tags: |
+        #     ${{ env.IMAGE }}:latest
+        #     ${{ env.IMAGE }}:${{ github.sha }}
+        #   cache-from: type=registry,ref=${{ env.IMAGE }}:latest
+        #   cache-to: type=inline
+        #
+        # Non-prod: build locally on the runner's docker host (no push).
+        run: DOCKER_BUILDKIT=1 docker build --target final -t ${{ env.IMAGE }}:latest .
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Deploy
+        # Production: SSH into the deployment server, pull image, and restart container.
+        #
+        # uses: appleboy/ssh-action@v1
+        # with:
+        #   host: ${{ secrets.DEPLOY_HOST }}
+        #   username: ${{ secrets.DEPLOY_USER }}
+        #   key: ${{ secrets.DEPLOY_KEY }}
+        #   script: |
+        #     docker pull ${{ env.IMAGE }}:latest
+        #     docker stop finance-tracker || true
+        #     docker rm   finance-tracker || true
+        #     docker run -d \
+        #       --name finance-tracker \
+        #       --restart unless-stopped \
+        #       --user "$UID_GID" \
+        #       $NETWORK_ARG \
+        #       -v "$DATA_DIR":/app/backend/data \
+        #       -v "$SECRETS_DIR":/app/backend/secrets \
+        #       -p 8000:8000 \
+        #       ${{ env.IMAGE }}:latest
+        #
+        # Non-prod: run the locally built image directly on the runner's docker host.
+        run: |
+          SECRETS_DIR="${{ vars.DEPLOY_SECRETS_DIR }}"
+          SECRETS_DIR="${SECRETS_DIR:-/opt/finance-tracker/secrets}"
+          DATA_DIR="${{ vars.DEPLOY_DATA_DIR }}"
+          DATA_DIR="${DATA_DIR:-/opt/finance-tracker/data}"
+          _UID="${{ vars.DEPLOY_UID }}"; _UID="${_UID:-1000}"
+          _GID="${{ vars.DEPLOY_GID }}"; _GID="${_GID:-1000}"
+          UID_GID="$_UID:$_GID"
+
+          NETWORK_ARG=""
+          if [ -n "${{ vars.DEPLOY_NETWORK }}" ]; then
+            NETWORK_ARG="--network ${{ vars.DEPLOY_NETWORK }}"
+          fi
+
+          # mkdir/chown run inside the runner container, not on the host.
+          # Use a throwaway container to create and chown the dirs on the host
+          # filesystem via Docker volume mounts (Docker uses host paths for -v).
+          docker run --rm \
+            -v "$DATA_DIR":/mnt/data \
+            -v "$SECRETS_DIR":/mnt/secrets \
+            alpine sh -c "chown $_UID:$_GID /mnt/data /mnt/secrets"
+          docker stop finance-tracker || true
+          docker rm   finance-tracker || true
+          docker run -d \
+            --name finance-tracker \
+            --restart unless-stopped \
+            --user "$UID_GID" \
+            $NETWORK_ARG \
+            -v "$DATA_DIR":/app/backend/data \
+            -v "$SECRETS_DIR":/app/backend/secrets \
+            -p 8001:8000 \
+            ${{ env.IMAGE }}:latest
