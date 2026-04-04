@@ -1,6 +1,7 @@
 # Generic Python / Node artefacts
 __pycache__/
 *.py[cod]
+*.egg-info/
 *.pyo
 *.pyd
 .Python
