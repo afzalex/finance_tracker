@@ -4,6 +4,8 @@
 [submodule "backend"]
 	path = backend
 	url = ssh://git@gitea.afzalex.com:2222/fzsystems/finance_tracker_backend.git
+	branch = main
 [submodule "frontend"]
 	path = frontend
 	url = ssh://git@gitea.afzalex.com:2222/fzsystems/finance_tracker_frontend.git
+	branch = main
