@@ -1,0 +1,14 @@
+.git
+**/.git
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.coverage
+**/htmlcov
+**/data
+**/.env
+**/secrets
+.DS_Store
+**/.DS_Store

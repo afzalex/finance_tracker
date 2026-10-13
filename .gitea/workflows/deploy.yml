@@ -72,13 +72,13 @@ jobs:
           git config --global http.sslVerify false
           git submodule update --init frontend backend
 
-      - name: Build test images in parallel
-        # BuildKit parallelises backend-deps and frontend-deps automatically.
-        # We also kick off both target builds in parallel at the shell level.
+      - name: Build test images
+        # Build the frontend target first: its dependency graph already includes
+        # both frontend-deps and backend-deps for OpenAPI generation. The backend
+        # test image then reuses backend-deps instead of racing a duplicate install.
         run: |
-          DOCKER_BUILDKIT=1 docker build --target backend-test  -t ft-backend-test  . &
-          DOCKER_BUILDKIT=1 docker build --target frontend-test -t ft-frontend-test . &
-          wait
+          DOCKER_BUILDKIT=1 docker build --target frontend-test -t ft-frontend-test .
+          DOCKER_BUILDKIT=1 docker build --target backend-test -t ft-backend-test .
 
       - name: Run backend tests
         run: docker run --rm ft-backend-test

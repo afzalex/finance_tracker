@@ -1,21 +1,27 @@
+# syntax=docker/dockerfile:1.7
+
 # ── Stage 1: Backend dependencies ────────────────────────────────────────────
 FROM python:3.11-slim AS backend-deps
 
 WORKDIR /app
 
 COPY backend/requirements.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 
 # ── Stage 2: Frontend dependencies ───────────────────────────────────────────
 FROM node:20 AS frontend-deps
 
-RUN apt-get update && apt-get install -y default-jre-headless --no-install-recommends && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y default-jre-headless --no-install-recommends
 
 WORKDIR /app
 
 COPY frontend/package*.json ./
-RUN npm install
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 
 # ── Stage 3: Export OpenAPI spec from backend ─────────────────────────────────
@@ -30,20 +36,23 @@ RUN PYTHONPATH=/app python backend/scripts/export_openapi.py backend/openapi.jso
 # ── Stage 4: Generate API client (shared by test and build) ───────────────────
 FROM frontend-deps AS frontend-codegen
 
-COPY frontend/ .
-
+COPY openapitools.json ./openapitools.json
 COPY --from=backend-api /app/backend/openapi.json /tmp/openapi.json
-RUN npx -y @openapitools/openapi-generator-cli generate \
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/root/.openapi-generator \
+    npx -y @openapitools/openapi-generator-cli@2.41.0 generate \
     -i /tmp/openapi.json \
     -g typescript-axios \
-    -o ./src/api \
+    -o /generated-api \
     --additional-properties="npmName=@finance-tracker/api,supportsES6=true,withSeparateModelsAndApi=true,apiPackage=api,modelPackage=models" \
     --global-property apis,models,supportingFiles,modelDocs=false,apiDocs=false
 
 
 # ── Stage 5: Build frontend ────────────────────────────────────────────────────
-FROM frontend-codegen AS frontend-build
+FROM frontend-deps AS frontend-build
 
+COPY frontend/ .
+COPY --from=frontend-codegen /generated-api ./src/api
 RUN npm run build
 
 
@@ -60,7 +69,10 @@ CMD ["pytest"]
 
 
 # ── Stage 7: Frontend tests ───────────────────────────────────────────────────
-FROM frontend-codegen AS frontend-test
+FROM frontend-deps AS frontend-test
+
+COPY frontend/ .
+COPY --from=frontend-codegen /generated-api ./src/api
 
 CMD ["npm", "run", "test:run"]
 
